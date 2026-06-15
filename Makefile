@@ -1,9 +1,14 @@
-.PHONY: init-db run-backend run-simulator run-all tidy
+.PHONY: init-db init-features run-backend run-simulator run-all tidy
 
 init-db:
 	@echo "初始化 TimescaleDB 数据库..."
 	psql -U postgres -c "CREATE DATABASE waterwheel;" 2>/dev/null || true
 	psql -U postgres -d waterwheel -f sql/init.sql
+
+init-features:
+	@echo "执行 Feature V2 SQL（调度/预测/能效/建造 新表与预置数据）..."
+	psql -U postgres -d waterwheel -f sql/features_v2.sql
+	@echo "Feature V2 初始化完成"
 
 run-backend:
 	@echo "启动后端服务..."
@@ -26,6 +31,7 @@ build-backend:
 help:
 	@echo "古代筒车监测系统 - Makefile 帮助"
 	@echo "  make init-db           - 初始化 TimescaleDB 数据库"
+	@echo "  make init-features     - 执行 Feature V2（调度/预测/能效/建造）新表与预置数据"
 	@echo "  make run-backend       - 启动 Go 后端服务"
 	@echo "  make run-simulator     - 启动模拟器并注入24h历史数据"
 	@echo "  make run-simulator-live - 启动模拟器仅实时上报"
