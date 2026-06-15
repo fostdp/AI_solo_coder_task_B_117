@@ -467,3 +467,56 @@ func TestSubmergenceCalculation_Logic(t *testing.T) {
 		t.Logf("✅ [%s] 浸没度=%.2f%% (正确)", c.name, sub*100)
 	}
 }
+
+// ============================================================
+// 集合预报机制验证
+// ============================================================
+
+func TestPercentile_Correctness(t *testing.T) {
+	cases := []struct {
+		sorted []float64
+		p      float64
+		want   float64
+	}{
+		{[]float64{1, 2, 3, 4, 5}, 0.5, 3.0},
+		{[]float64{1, 2, 3, 4, 5}, 0.0, 1.0},
+		{[]float64{1, 2, 3, 4, 5}, 1.0, 5.0},
+		{[]float64{10, 20, 30}, 0.5, 20.0},
+		{[]float64{10}, 0.5, 10.0},
+		{[]float64{}, 0.5, 0.0},
+		{[]float64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, 0.1, 1.9},
+	}
+	for i, c := range cases {
+		got := percentile(c.sorted, c.p)
+		if math.Abs(got-c.want) > 0.15 {
+			t.Errorf("case%d: percentile(%.1f)=%.2f, 期望%.2f", i, c.p, got, c.want)
+		}
+	}
+	t.Log("✅ percentile 7组验证通过")
+}
+
+func TestSortFloat64s_Correctness(t *testing.T) {
+	input := []float64{5.0, 1.0, 3.0, 2.0, 4.0}
+	sortFloat64s(input)
+	for i := 1; i < len(input); i++ {
+		if input[i] < input[i-1] {
+			t.Errorf("排序错误: [%d]=%.1f < [%d]=%.1f", i, input[i], i-1, input[i-1])
+		}
+	}
+	t.Logf("✅ sortFloat64s 验证通过: %v", input)
+}
+
+func TestEnsembleParams_ConfigValues(t *testing.T) {
+	f := newTestForecaster()
+	if f.params.EnsembleSize <= 0 {
+		t.Errorf("EnsembleSize应为正, 实际%d", f.params.EnsembleSize)
+	}
+	if f.params.EnsembleNoiseScale <= 0 {
+		t.Errorf("EnsembleNoiseScale应为正, 实际%.2f", f.params.EnsembleNoiseScale)
+	}
+	if f.params.EnsembleSize < 10 {
+		t.Errorf("集合成员数过少(%d), 统计意义不足", f.params.EnsembleSize)
+	}
+	t.Logf("✅ 集合预报参数: 成员=%d 噪声尺度=%.2f",
+		f.params.EnsembleSize, f.params.EnsembleNoiseScale)
+}
