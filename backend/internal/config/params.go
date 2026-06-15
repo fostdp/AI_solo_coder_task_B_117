@@ -149,3 +149,113 @@ func DefaultPanelParams() *PanelParams {
 		ChartPaddingBottom: 30,
 	}
 }
+
+type SchedulerParams struct {
+	PumpFlowRateM3H      float64
+	PumpPowerKW          float64
+	PumpEfficiency       float64
+	DefaultElecCostYuan  float64
+	MaxRunHoursPerWheel  float64
+	MinWaterwheelRatio   float64
+	CO2PerKWhKg          float64
+	LPSolveIterations    int
+	PenaltyPumpUsage     float64
+}
+
+type ForecastingParams struct {
+	DefaultHorizonDays   int
+	SeasonalWindowYears  int
+	ARWeight             float64
+	SeasonWeight         float64
+	TrendWeight          float64
+	MinConfidence        float64
+	HeightStepCm         float64
+	TargetSubmergence    float64
+	MaxAdjustmentCm      float64
+	WarningDropRatio     float64
+}
+
+type ComparisonParams struct {
+	ModernPumpEfficiency   float64
+	ModernPumpCostPerKW    float64
+	WaterwheelBuildCostYuan float64
+	WaterwheelMaintainYuan float64
+	CO2GridFactorKgPerKWh  float64
+	DiscountRate           float64
+	ProjectLifetimeYears   int
+	DefaultCompareDays     int
+	LaborCostPerDayYuan    float64
+}
+
+type BuildParams struct {
+	MinDiameterM       float64
+	MaxDiameterM       float64
+	MinBuckets         int
+	MaxBuckets         int
+	MinSpokes          int
+	MaxSpokes          int
+	MaxPartCount       int
+	Materials          []string
+	DefaultFlowVelocity float64
+	DefaultWaterDrop   float64
+	StressLimit        float64
+}
+
+func DefaultSchedulerParams() *SchedulerParams {
+	return &SchedulerParams{
+		PumpFlowRateM3H:     120.0,
+		PumpPowerKW:         15.0,
+		PumpEfficiency:      0.72,
+		DefaultElecCostYuan: 0.85,
+		MaxRunHoursPerWheel: 20.0,
+		MinWaterwheelRatio:  0.4,
+		CO2PerKWhKg:         0.785,
+		LPSolveIterations:   200,
+		PenaltyPumpUsage:    0.15,
+	}
+}
+
+func DefaultForecastingParams() *ForecastingParams {
+	return &ForecastingParams{
+		DefaultHorizonDays:  30,
+		SeasonalWindowYears: 3,
+		ARWeight:            0.35,
+		SeasonWeight:        0.45,
+		TrendWeight:         0.20,
+		MinConfidence:       0.65,
+		HeightStepCm:        5.0,
+		TargetSubmergence:   0.35,
+		MaxAdjustmentCm:     80.0,
+		WarningDropRatio:    0.55,
+	}
+}
+
+func DefaultComparisonParams() *ComparisonParams {
+	return &ComparisonParams{
+		ModernPumpEfficiency:    0.72,
+		ModernPumpCostPerKW:     1800.0,
+		WaterwheelBuildCostYuan: 45000.0,
+		WaterwheelMaintainYuan:  1200.0,
+		CO2GridFactorKgPerKWh:   0.785,
+		DiscountRate:            0.04,
+		ProjectLifetimeYears:    30,
+		DefaultCompareDays:      365,
+		LaborCostPerDayYuan:     260.0,
+	}
+}
+
+func DefaultBuildParams() *BuildParams {
+	return &BuildParams{
+		MinDiameterM:        2.0,
+		MaxDiameterM:       15.0,
+		MinBuckets:         6,
+		MaxBuckets:         48,
+		MinSpokes:          4,
+		MaxSpokes:          24,
+		MaxPartCount:       200,
+		Materials:          []string{"楠木", "杉木", "柏木", "松木", "竹制", "铸铁"},
+		DefaultFlowVelocity: 1.5,
+		DefaultWaterDrop:   2.0,
+		StressLimit:        0.85,
+	}
+}
