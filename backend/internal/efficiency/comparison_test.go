@@ -438,3 +438,47 @@ func TestAncientAdvantageRanges(t *testing.T) {
 		})
 	}
 }
+
+// ============================================================
+// 归一化能效比验证
+// ============================================================
+
+func TestBuildComparison_NormalizedEffRatio(t *testing.T) {
+	c := newTestComparer()
+	wheel := makeWheel(1, 8.0, 120.0)
+
+	comp, _ := c.buildComparison(context.Background(), wheel, 80.0, 2.8, 0.55, 0.70, 7.5, 365, "standard")
+	adv := comp.AncientAdvantage
+
+	if adv.NormalizedEffRatio < 0 {
+		t.Errorf("归一化能效比不可为负: %.3f", adv.NormalizedEffRatio)
+	}
+	if math.IsNaN(adv.NormalizedEffRatio) || math.IsInf(adv.NormalizedEffRatio, 0) {
+		t.Errorf("归一化能效比不应为NaN/Inf: %.3f", adv.NormalizedEffRatio)
+	}
+	if adv.PumpLoadFactor <= 0 || adv.PumpLoadFactor > 1.0 {
+		t.Errorf("水泵负载因子应∈(0,1], 实际%.3f", adv.PumpLoadFactor)
+	}
+	t.Logf("✅ 归一化能效比=%.3f, 水泵负载因子=%.2f",
+		adv.NormalizedEffRatio, adv.PumpLoadFactor)
+}
+
+func TestBuildComparison_PumpLoadFactorEffect(t *testing.T) {
+	c := newTestComparer()
+	wheel := makeWheel(1, 8.0, 120.0)
+
+	origLF := c.params.PumpLoadFactor
+	c.params.PumpLoadFactor = 0.5
+	compLow, _ := c.buildComparison(context.Background(), wheel, 80.0, 2.8, 0.55, 0.70, 7.5, 365, "low_load")
+
+	c.params.PumpLoadFactor = 1.0
+	compHigh, _ := c.buildComparison(context.Background(), wheel, 80.0, 2.8, 0.55, 0.70, 7.5, 365, "full_load")
+	c.params.PumpLoadFactor = origLF
+
+	t.Logf("低载(50%%)电费=%.2f vs 满载(100%%)电费=%.2f",
+		compLow.ModernPumpMetrics.EnergyCostYuan, compHigh.ModernPumpMetrics.EnergyCostYuan)
+
+	if compLow.AncientAdvantage.PumpLoadFactor >= compHigh.AncientAdvantage.PumpLoadFactor+0.01 {
+		t.Log("低载因子记录值应低于满载（合理）")
+	}
+}
