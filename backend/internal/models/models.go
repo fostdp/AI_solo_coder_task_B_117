@@ -238,6 +238,8 @@ type AncientEdge struct {
 	EnergyRatio       float64 `json:"energy_ratio_ancient_vs_modern"`
 	PaybackYears      float64 `json:"waterwheel_payback_years"`
 	BreakEvenM3       float64 `json:"break_even_water_m3"`
+	NormalizedEffRatio float64 `json:"normalized_eff_ratio"`
+	PumpLoadFactor    float64 `json:"pump_load_factor"`
 }
 
 // ============================================================
@@ -298,4 +300,22 @@ type BuildSimulation struct {
 	StressLevel      float64 `json:"stress_level"`
 	Stable           bool    `json:"stable"`
 	Warning          string  `json:"warning,omitempty"`
+	SnappedParams    *SnappedResult `json:"snapped_params,omitempty"`
+	Guidance         []BuildGuidance `json:"guidance,omitempty"`
+}
+
+type SnappedResult struct {
+	Diameter    float64 `json:"diameter_m"`
+	BucketCount int     `json:"bucket_count"`
+	SpokeCount  int     `json:"spoke_count"`
+	AnySnapped  bool    `json:"any_snapped"`
+}
+
+type BuildGuidance struct {
+	Step        string  `json:"step"`
+	Message     string  `json:"message"`
+	ParamName   string  `json:"param_name"`
+	CurrentVal  float64 `json:"current_val"`
+	TargetVal   float64 `json:"target_val"`
+	DeviationPct float64 `json:"deviation_pct"`
 }
