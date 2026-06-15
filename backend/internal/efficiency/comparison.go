@@ -67,7 +67,7 @@ func (c *AncientsVsModern) CompareWaterwheelPump(ctx context.Context, wheelID in
 		avgHydro = 0.70
 	}
 
-	return c.buildComparison(wheel, avgFlow, avgDrop, avgMech, avgHydro, avgSpeed, periodDays, scenario)
+	return c.buildComparison(ctx, wheel, avgFlow, avgDrop, avgMech, avgHydro, avgSpeed, periodDays, scenario)
 }
 
 func (c *AncientsVsModern) generateEstimatedComparison(ctx context.Context, wheel *models.Waterwheel, periodDays int, scenario string) (*models.EfficiencyComparison, error) {
@@ -76,10 +76,10 @@ func (c *AncientsVsModern) generateEstimatedComparison(ctx context.Context, whee
 	estMech := 0.55
 	estHydro := 0.70
 	estSpeed := 6.0
-	return c.buildComparison(wheel, estFlow, estDrop, estMech, estHydro, estSpeed, periodDays, scenario+"_estimated")
+	return c.buildComparison(ctx, wheel, estFlow, estDrop, estMech, estHydro, estSpeed, periodDays, scenario+"_estimated")
 }
 
-func (c *AncientsVsModern) buildComparison(wheel *models.Waterwheel, avgFlowM3H, avgDropM, avgMech, avgHydro, avgRpm float64, periodDays int, scenario string) (*models.EfficiencyComparison, error) {
+func (c *AncientsVsModern) buildComparison(ctx context.Context, wheel *models.Waterwheel, avgFlowM3H, avgDropM, avgMech, avgHydro, avgRpm float64, periodDays int, scenario string) (*models.EfficiencyComparison, error) {
 	totalHours := float64(periodDays) * 24
 	utilization := 0.78
 	runHours := totalHours * utilization
@@ -199,9 +199,11 @@ func (c *AncientsVsModern) buildComparison(wheel *models.Waterwheel, avgFlowM3H,
 		Scenario:          scenario,
 	}
 
-	id, err := c.db.SaveEfficiencyComparison(ctx, comp)
-	if err == nil {
-		comp.ID = id
+	if c.db != nil {
+		id, err := c.db.SaveEfficiencyComparison(ctx, comp)
+		if err == nil {
+			comp.ID = id
+		}
 	}
 	return comp, nil
 }
