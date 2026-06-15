@@ -15,6 +15,7 @@ services:
       - timescale_data:/var/lib/postgresql/data
       - ./sql/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
       - ./deploy/timescale-tune.sh:/docker-entrypoint-initdb.d/002-tune.sh:ro
+      - ./sql/features_v2.sql:/docker-entrypoint-initdb.d/003-features-v2.sql:ro
     command: >
       postgres
       -c shared_preload_libraries=timescaledb
