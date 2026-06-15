@@ -24,9 +24,17 @@ class App {
         this.view.onClick = () => this.showDetailModal();
         this.panel = new EfficiencyPanel(this.apiBase);
 
+        this.schedulerPanel = null;
+        this.forecastPanel = null;
+        this.efficiencyComparePanel = null;
+        this.virtualBuilder = null;
+        this.activeTab = 'monitor';
+        this.buildPresetsCache = [];
+
         window.addEventListener('resize', () => this.onResize());
 
         this.bindEvents();
+        this.initTabs();
         this.loadWaterwheels();
         this.startDataRefresh();
     }
@@ -259,6 +267,100 @@ class App {
         }
         document.getElementById('onlineWheels').textContent = online;
         document.getElementById('alertCount').textContent = '0';
+    }
+
+    initTabs() {
+        const tabs = document.querySelectorAll('#tabsNav .tab-btn');
+        tabs.forEach(btn => {
+            btn.addEventListener('click', () => this.switchTab(btn.dataset.tab));
+        });
+    }
+
+    async switchTab(tabName) {
+        if (this.activeTab === tabName) return;
+
+        document.querySelectorAll('#tabsNav .tab-btn').forEach(b => {
+            b.classList.toggle('active', b.dataset.tab === tabName);
+        });
+
+        document.querySelectorAll('.tab-content').forEach(el => {
+            el.classList.toggle('hidden', el.id !== `tab-${tabName}`);
+        });
+
+        const sidebar = document.getElementById('monitorSidebar');
+        if (sidebar) {
+            sidebar.style.display = (tabName === 'monitor') ? '' : 'none';
+        }
+
+        this.activeTab = tabName;
+
+        if (tabName === 'monitor') {
+            if (this.view) this.view.resize();
+            return;
+        }
+
+        if (tabName === 'scheduler' && !this.schedulerPanel) {
+            if (typeof IrrigationSchedulerPanel !== 'undefined') {
+                this.schedulerPanel = new IrrigationSchedulerPanel('#schedulerPanelRoot', this.apiBase);
+            }
+        }
+
+        if (tabName === 'forecast' && !this.forecastPanel) {
+            if (typeof WaterLevelForecastPanel !== 'undefined') {
+                this.forecastPanel = new WaterLevelForecastPanel('#forecastPanelRoot', this.apiBase, this.waterwheels);
+            } else if (window.WaterLevelForecastPanel) {
+                this.forecastPanel = new window.WaterLevelForecastPanel('#forecastPanelRoot', this.apiBase, this.waterwheels);
+            }
+        }
+
+        if (tabName === 'efficiency' && !this.efficiencyComparePanel) {
+            if (typeof EfficiencyComparePanel !== 'undefined') {
+                this.efficiencyComparePanel = new EfficiencyComparePanel('#efficiencyPanelRoot', this.apiBase, this.waterwheels);
+            }
+        }
+
+        if (tabName === 'build' && !this.virtualBuilder) {
+            try {
+                if (this.buildPresetsCache.length === 0) {
+                    const presets = await this._fetchBuildPresets();
+                    this.buildPresetsCache = presets || [];
+                }
+                if (typeof VirtualBuilder !== 'undefined') {
+                    this.virtualBuilder = new VirtualBuilder('#builderPanelRoot', {
+                        apiBase: this.apiBase,
+                        presets: this.buildPresetsCache,
+                    });
+                }
+            } catch (e) {
+                console.error('初始化虚拟建造器失败:', e);
+                if (typeof VirtualBuilder !== 'undefined') {
+                    this.virtualBuilder = new VirtualBuilder('#builderPanelRoot', { apiBase: this.apiBase });
+                }
+            }
+        }
+
+        if (tabName === 'forecast' && this.forecastPanel && typeof this.forecastPanel.setWaterwheels === 'function') {
+            this.forecastPanel.setWaterwheels(this.waterwheels);
+        }
+        if (tabName === 'efficiency' && this.efficiencyComparePanel && typeof this.efficiencyComparePanel.setWaterwheels === 'function') {
+            this.efficiencyComparePanel.setWaterwheels(this.waterwheels);
+        }
+    }
+
+    async _fetchBuildPresets() {
+        try {
+            const res = await fetch(`${this.apiBase}/build-presets`);
+            if (!res.ok) return [];
+            const data = await res.json();
+            return data && Array.isArray(data) ? data : [];
+        } catch (e) {
+            console.warn('获取建造模板失败，使用内置模板');
+            return [
+                { id: 'dujiangyan24', name: '都江堰24斗筒车', culture: '岷江文化' },
+                { id: 'fenghuang28', name: '凤凰28斗筒车', culture: '湘西文化' },
+                { id: 'lijiang18', name: '丽江18斗筒车', culture: '纳西文化' },
+            ];
+        }
     }
 }
 
