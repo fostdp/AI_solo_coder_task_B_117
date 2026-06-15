@@ -2,7 +2,9 @@ package database
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -355,4 +357,341 @@ func (db *Database) getOptimizationLegacy(ctx context.Context, waterwheelID int6
 		results = append(results, r)
 	}
 	return results, rows.Err()
+}
+
+// ============================================================
+// Feature V2: 灌溉田块与协同调度
+// ============================================================
+
+func (db *Database) ListIrrigationFields(ctx context.Context) ([]models.IrrigationField, error) {
+	rows, err := db.pool.Query(ctx, `
+		SELECT id, name, location, area_hectare, crop_type,
+		daily_water_req_m3, priority, COALESCE(assigned_waterwheels, '{}'),
+		COALESCE(current_filled_m3, 0), created_at
+		FROM irrigation_fields ORDER BY priority ASC, id ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var fields []models.IrrigationField
+	for rows.Next() {
+		var f models.IrrigationField
+		if err := rows.Scan(&f.ID, &f.Name, &f.Location, &f.AreaHectare,
+			&f.CropType, &f.DailyWaterReqM3, &f.Priority, &f.AssignedWaterwheel,
+			&f.CurrentFilledM3, &f.CreatedAt); err != nil {
+			return nil, err
+		}
+		fields = append(fields, f)
+	}
+	return fields, rows.Err()
+}
+
+func (db *Database) GetIrrigationField(ctx context.Context, id int64) (*models.IrrigationField, error) {
+	row := db.pool.QueryRow(ctx, `
+		SELECT id, name, location, area_hectare, crop_type,
+		daily_water_req_m3, priority, COALESCE(assigned_waterwheels, '{}'),
+		COALESCE(current_filled_m3, 0), created_at
+		FROM irrigation_fields WHERE id = $1
+	`, id)
+	var f models.IrrigationField
+	if err := row.Scan(&f.ID, &f.Name, &f.Location, &f.AreaHectare,
+		&f.CropType, &f.DailyWaterReqM3, &f.Priority, &f.AssignedWaterwheel,
+		&f.CurrentFilledM3, &f.CreatedAt); err != nil {
+		return nil, err
+	}
+	return &f, nil
+}
+
+func (db *Database) SaveScheduleSolution(ctx context.Context, sol *models.ScheduleSolution) (int64, error) {
+	wpJSON, _ := json.Marshal(sol.WaterwheelPlans)
+	var ppJSON []byte
+	if sol.PumpPlan != nil {
+		ppJSON, _ = json.Marshal(sol.PumpPlan)
+	}
+	var deadline int64
+	err := db.pool.QueryRow(ctx, `
+		INSERT INTO schedule_solutions (field_id, time, total_water_m3, total_duration_hours,
+			total_cost_yuan, total_energy_kwh, renewable_ratio, waterwheel_plans, pump_plan, status, deadline_hours)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11)
+		RETURNING id
+	`, sol.FieldID, sol.Time, sol.TotalWaterM3, sol.TotalDurationHours,
+		sol.TotalCostYuan, sol.TotalEnergyKWh, sol.RenewableRatio,
+		wpJSON, ppJSON, sol.Status, 24).Scan(&deadline)
+	return deadline, err
+}
+
+func (db *Database) ListScheduleSolutions(ctx context.Context, fieldID int64, limit int) ([]models.ScheduleSolution, error) {
+	q := `SELECT id, field_id, time, total_water_m3, total_duration_hours,
+		total_cost_yuan, total_energy_kwh, renewable_ratio,
+		waterwheel_plans, pump_plan, status FROM schedule_solutions `
+	var args []interface{}
+	if fieldID > 0 {
+		q += `WHERE field_id = $1 `
+		args = append(args, fieldID)
+		args = append(args, limit)
+		q += `ORDER BY time DESC LIMIT $2`
+	} else {
+		args = append(args, limit)
+		q += `ORDER BY time DESC LIMIT $1`
+	}
+	rows, err := db.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sols []models.ScheduleSolution
+	for rows.Next() {
+		var s models.ScheduleSolution
+		var wpB, ppB []byte
+		if err := rows.Scan(&s.ID, &s.FieldID, &s.Time, &s.TotalWaterM3, &s.TotalDurationHours,
+			&s.TotalCostYuan, &s.TotalEnergyKWh, &s.RenewableRatio,
+			&wpB, &ppB, &s.Status); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal(wpB, &s.WaterwheelPlans)
+		if ppB != nil {
+			var pp models.PumpPlan
+			_ = json.Unmarshal(ppB, &pp)
+			s.PumpPlan = &pp
+		}
+		sols = append(sols, s)
+	}
+	return sols, rows.Err()
+}
+
+// ============================================================
+// Feature V2: 季节性水位预测与高度调节
+// ============================================================
+
+func (db *Database) ListHistoricalHydrology(ctx context.Context, waterwheelID int64, daysBack int) ([]models.HistoricalHydrology, error) {
+	rows, err := db.pool.Query(ctx, `
+		SELECT date, waterwheel_id, avg_drop, avg_flow, rainfall_mm, month
+		FROM historical_hydrology WHERE waterwheel_id = $1 AND date >= NOW() - $2::interval
+		ORDER BY date ASC
+	`, waterwheelID, fmt.Sprintf("%d days", daysBack))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []models.HistoricalHydrology
+	for rows.Next() {
+		var h models.HistoricalHydrology
+		if err := rows.Scan(&h.Date, &h.WaterwheelID, &h.AvgDrop, &h.AvgFlow, &h.RainfallMm, &h.Month); err != nil {
+			return nil, err
+		}
+		list = append(list, h)
+	}
+	return list, rows.Err()
+}
+
+func (db *Database) SaveWaterLevelForecast(ctx context.Context, f *models.WaterLevelForecast) (int64, error) {
+	var id int64
+	err := db.pool.QueryRow(ctx, `
+		INSERT INTO water_level_forecasts (waterwheel_id, forecast_date, horizon_days,
+			predicted_drop, predicted_flow, lower_bound, upper_bound, season, confidence, created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id
+	`, f.WaterwheelID, f.ForecastDate, f.HorizonDays,
+		f.PredictedDrop, f.PredictedFlow, f.LowerBound, f.UpperBound,
+		f.Season, f.Confidence, f.CreatedAt).Scan(&id)
+	return id, err
+}
+
+func (db *Database) GetForecastByID(ctx context.Context, id int64) (*models.WaterLevelForecast, error) {
+	row := db.pool.QueryRow(ctx, `
+		SELECT id, waterwheel_id, forecast_date, horizon_days, predicted_drop,
+			predicted_flow, lower_bound, upper_bound, season, confidence, created_at
+		FROM water_level_forecasts WHERE id = $1
+	`, id)
+	var f models.WaterLevelForecast
+	if err := row.Scan(&f.ID, &f.WaterwheelID, &f.ForecastDate, &f.HorizonDays,
+		&f.PredictedDrop, &f.PredictedFlow, &f.LowerBound, &f.UpperBound,
+		&f.Season, &f.Confidence, &f.CreatedAt); err != nil {
+		return nil, err
+	}
+	return &f, nil
+}
+
+func (db *Database) ListForecasts(ctx context.Context, waterwheelID int64, limit int) ([]models.WaterLevelForecast, error) {
+	rows, err := db.pool.Query(ctx, `
+		SELECT id, waterwheel_id, forecast_date, horizon_days, predicted_drop,
+			predicted_flow, lower_bound, upper_bound, season, confidence, created_at
+		FROM water_level_forecasts WHERE waterwheel_id = $1 ORDER BY forecast_date DESC LIMIT $2
+	`, waterwheelID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []models.WaterLevelForecast
+	for rows.Next() {
+		var f models.WaterLevelForecast
+		if err := rows.Scan(&f.ID, &f.WaterwheelID, &f.ForecastDate, &f.HorizonDays,
+			&f.PredictedDrop, &f.PredictedFlow, &f.LowerBound, &f.UpperBound,
+			&f.Season, &f.Confidence, &f.CreatedAt); err != nil {
+			return nil, err
+		}
+		list = append(list, f)
+	}
+	return list, rows.Err()
+}
+
+func (db *Database) SaveHeightAdjustment(ctx context.Context, a *models.HeightAdjustment) (int64, error) {
+	var id int64
+	fid := a.ForecastID
+	if fid == 0 {
+		fid = 0
+	}
+	err := db.pool.QueryRow(ctx, `
+		INSERT INTO height_adjustments (waterwheel_id, forecast_id, current_height, recommended_height,
+			adjustment_cm, expected_lift_gain_percent, expected_eff_gain_percent,
+			submergence_before, submergence_after, reason, status, created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id
+	`, a.WaterwheelID, fid, a.CurrentHeight, a.RecommendedHeight,
+		a.AdjustmentCm, a.ExpectedLiftGain, a.ExpectedEffGain,
+		a.SubmergenceBefore, a.SubmergenceAfter, a.Reason, a.Status, a.CreatedAt).Scan(&id)
+	return id, err
+}
+
+func (db *Database) ListHeightAdjustments(ctx context.Context, waterwheelID int64, limit int) ([]models.HeightAdjustment, error) {
+	rows, err := db.pool.Query(ctx, `
+		SELECT id, waterwheel_id, COALESCE(forecast_id,0), current_height, recommended_height,
+			adjustment_cm, expected_lift_gain_percent, expected_eff_gain_percent,
+			submergence_before, submergence_after, reason, status, implemented_at, created_at
+		FROM height_adjustments WHERE waterwheel_id = $1 ORDER BY created_at DESC LIMIT $2
+	`, waterwheelID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []models.HeightAdjustment
+	for rows.Next() {
+		var a models.HeightAdjustment
+		if err := rows.Scan(&a.ID, &a.WaterwheelID, &a.ForecastID, &a.CurrentHeight, &a.RecommendedHeight,
+			&a.AdjustmentCm, &a.ExpectedLiftGain, &a.ExpectedEffGain,
+			&a.SubmergenceBefore, &a.SubmergenceAfter, &a.Reason, &a.Status, &a.ImplementedAt, &a.CreatedAt); err != nil {
+			return nil, err
+		}
+		list = append(list, a)
+	}
+	return list, rows.Err()
+}
+
+func (db *Database) MarkAdjustmentImplemented(ctx context.Context, adjID int64) error {
+	_, err := db.pool.Exec(ctx, `
+		UPDATE height_adjustments SET status='implemented', implemented_at = NOW() WHERE id = $1
+	`, adjID)
+	return err
+}
+
+// ============================================================
+// Feature V2: 古今能效对比
+// ============================================================
+
+func (db *Database) SaveEfficiencyComparison(ctx context.Context, c *models.EfficiencyComparison) (int64, error) {
+	wmB, _ := json.Marshal(c.WaterwheelMetrics)
+	mmB, _ := json.Marshal(c.ModernPumpMetrics)
+	advB, _ := json.Marshal(c.AncientAdvantage)
+	var id int64
+	err := db.pool.QueryRow(ctx, `
+		INSERT INTO efficiency_comparisons (waterwheel_id, time, period_days, waterwheel_metrics, modern_pump_metrics, ancient_advantage, scenario)
+		VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6::jsonb,$7) RETURNING id
+	`, c.WaterwheelID, c.Time, c.PeriodDays, wmB, mmB, advB, c.Scenario).Scan(&id)
+	return id, err
+}
+
+func (db *Database) ListEfficiencyComparisons(ctx context.Context, waterwheelID int64, limit int) ([]models.EfficiencyComparison, error) {
+	q := `SELECT id, waterwheel_id, time, period_days, waterwheel_metrics, modern_pump_metrics, ancient_advantage, scenario FROM efficiency_comparisons `
+	var args []interface{}
+	if waterwheelID > 0 {
+		q += `WHERE waterwheel_id = $1 `
+		args = append(args, waterwheelID)
+		args = append(args, limit)
+		q += `ORDER BY time DESC LIMIT $2`
+	} else {
+		args = append(args, limit)
+		q += `ORDER BY time DESC LIMIT $1`
+	}
+	rows, err := db.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []models.EfficiencyComparison
+	for rows.Next() {
+		var c models.EfficiencyComparison
+		var wB, mB, aB []byte
+		if err := rows.Scan(&c.ID, &c.WaterwheelID, &c.Time, &c.PeriodDays, &wB, &mB, &aB, &c.Scenario); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal(wB, &c.WaterwheelMetrics)
+		_ = json.Unmarshal(mB, &c.ModernPumpMetrics)
+		_ = json.Unmarshal(aB, &c.AncientAdvantage)
+		list = append(list, c)
+	}
+	return list, rows.Err()
+}
+
+// ============================================================
+// Feature V2: 公众虚拟建造筒车
+// ============================================================
+
+func (db *Database) SaveVirtualBuild(ctx context.Context, b *models.VirtualBuild) (int64, error) {
+	pB, _ := json.Marshal(b.PartsUsed)
+	var id int64
+	err := db.pool.QueryRow(ctx, `
+		INSERT INTO virtual_builds (user_id, build_name, diameter_m, bucket_count, bucket_capacity_m3,
+			spoke_count, material, wheel_angle_deg, install_height_m, parts_used,
+			predicted_lift_m3h, predicted_efficiency, blueprint_svg, is_public, likes, created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13,$14,$15,$16) RETURNING id
+	`, b.UserID, b.BuildName, b.Diameter, b.BucketCount, b.BucketCapacity,
+		b.SpokeCount, b.Material, b.WheelAngle, b.InstallHeight, pB,
+		b.PredictedLift, b.PredictedEff, b.Blueprint, b.IsPublic, b.Likes, b.CreatedAt).Scan(&id)
+	return id, err
+}
+
+func (db *Database) ListVirtualBuilds(ctx context.Context, userID string, onlyPublic bool, limit int) ([]models.VirtualBuild, error) {
+	q := `SELECT id, user_id, build_name, diameter_m, bucket_count, bucket_capacity_m3,
+		spoke_count, material, wheel_angle_deg, install_height_m, parts_used,
+		predicted_lift_m3h, predicted_efficiency, likes, is_public, created_at
+		FROM virtual_builds WHERE `
+	var args []interface{}
+	conds := []string{}
+	if userID != "" && !onlyPublic {
+		args = append(args, userID)
+		conds = append(conds, fmt.Sprintf("(is_public = true OR user_id = $%d", len(args)))
+	} else if onlyPublic {
+		conds = append(conds, "is_public = true")
+	}
+	if len(conds) > 0 {
+		q += strings.Join(conds, " AND ") + " "
+	}
+	args = append(args, limit)
+	q += fmt.Sprintf("ORDER BY likes DESC, created_at DESC LIMIT $%d", len(args))
+
+	rows, err := db.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []models.VirtualBuild
+	for rows.Next() {
+		var b models.VirtualBuild
+		var pB []byte
+		if err := rows.Scan(&b.ID, &b.UserID, &b.BuildName, &b.Diameter, &b.BucketCount, &b.BucketCapacity,
+			&b.SpokeCount, &b.Material, &b.WheelAngle, &b.InstallHeight, &pB,
+			&b.PredictedLift, &b.PredictedEff, &b.Likes, &b.IsPublic, &b.CreatedAt); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal(pB, &b.PartsUsed)
+		list = append(list, b)
+	}
+	return list, rows.Err()
+}
+
+func (db *Database) IncrementBuildLikes(ctx context.Context, buildID int64) error {
+	_, err := db.pool.Exec(ctx, `UPDATE virtual_builds SET likes = likes + 1 WHERE id = $1`, buildID)
+	return err
 }
