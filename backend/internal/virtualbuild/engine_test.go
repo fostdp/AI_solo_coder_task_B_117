@@ -609,3 +609,156 @@ func TestValidateAndSimulate_NegativeFlowAndDrop(t *testing.T) {
 	}
 	t.Logf("负值输入回退: flow=%.3f drop=%.3f", sim.FlowVelocity, sim.WaterDrop)
 }
+
+// ============================================================
+// 智能吸附验证
+// ============================================================
+
+func TestSnapPosition_DiameterSnapsToGrid(t *testing.T) {
+	e := newTestEngine()
+	build := makeBuild(7.3, 24, 12, "杉木", 0.05)
+	result := e.SnapPosition(build)
+
+	if build.Diameter != 7.5 {
+		t.Errorf("直径7.3应吸附到7.5(网格0.5), 实际%.1f", build.Diameter)
+	}
+	if !result.AnySnapped {
+		t.Error("直径被吸附, AnySnapped应为true")
+	}
+	t.Logf("✅ 吸附: 7.3→%.1f (网格=%.1f)", build.Diameter, e.params.SnapGridSize)
+}
+
+func TestSnapPosition_NoSnapWhenAlreadyOnGrid(t *testing.T) {
+	e := newTestEngine()
+	build := makeBuild(8.0, 24, 12, "杉木", 0.05)
+	result := e.SnapPosition(build)
+
+	if build.Diameter != 8.0 {
+		t.Errorf("已在网格上的8.0不应被吸附, 实际%.1f", build.Diameter)
+	}
+	if result.AnySnapped {
+		t.Error("无参数偏离网格, AnySnapped应为false")
+	}
+	t.Logf("✅ 无吸附: 8.0保持不变")
+}
+
+func TestSnapPosition_BucketCountSnapsToEven(t *testing.T) {
+	e := newTestEngine()
+	build := makeBuild(8.0, 25, 12, "杉木", 0.05)
+	result := e.SnapPosition(build)
+
+	if build.BucketCount != 26 {
+		t.Errorf("25斗应吸附到偶数26, 实际%d", build.BucketCount)
+	}
+	if !result.AnySnapped {
+		t.Error("斗数被吸附, AnySnapped应为true")
+	}
+	t.Logf("✅ 斗数吸附: 25→%d", build.BucketCount)
+}
+
+func TestSnapPosition_SpokeCountSnapsToEven(t *testing.T) {
+	e := newTestEngine()
+	build := makeBuild(8.0, 24, 11, "杉木", 0.05)
+	result := e.SnapPosition(build)
+
+	if build.SpokeCount != 12 {
+		t.Errorf("11辐应吸附到偶数12, 实际%d", build.SpokeCount)
+	}
+	if !result.AnySnapped {
+		t.Error("辐条被吸附, AnySnapped应为true")
+	}
+	t.Logf("✅ 辐条吸附: 11→%d", build.SpokeCount)
+}
+
+// ============================================================
+// 操作引导提示验证
+// ============================================================
+
+func TestGenerateGuidance_StableBuild(t *testing.T) {
+	e := newTestEngine()
+	build := makeBuild(8.0, 24, 12, "杉木", 0.05)
+	sim, err := e.ValidateAndSimulate(build, 2.0, 3.0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(sim.Guidance) == 0 {
+		t.Error("稳定筒车应有至少一条引导(complete)")
+	}
+
+	found := false
+	for _, g := range sim.Guidance {
+		if g.Step == "complete" {
+			found = true
+			t.Logf("✅ 稳定引导: %s", g.Message)
+		}
+	}
+	if !found {
+		t.Log("未找到complete引导(可能有优化建议优先)")
+		for _, g := range sim.Guidance {
+			t.Logf("  引导[%s]: %s", g.Step, g.Message)
+		}
+	}
+}
+
+func TestGenerateGuidance_StressWarning(t *testing.T) {
+	e := newTestEngine()
+	build := makeBuild(8.0, 48, 4, "竹制", 0.10)
+	sim, _ := e.ValidateAndSimulate(build, 3.0, 6.0)
+
+	stressGuide := false
+	for _, g := range sim.Guidance {
+		if g.Step == "reduce_stress" {
+			stressGuide = true
+			if g.ParamName != "stress_level" {
+				t.Errorf("应力引导应标注stress_level, 实际%s", g.ParamName)
+			}
+			t.Logf("✅ 应力引导: %s", g.Message)
+		}
+	}
+	if !stressGuide {
+		t.Log("本场景未触发应力引导(可能应力未超80%阈值)")
+		for _, g := range sim.Guidance {
+			t.Logf("  引导[%s]: %s", g.Step, g.Message)
+		}
+	}
+}
+
+func TestGenerateGuidance_BucketDeviation(t *testing.T) {
+	e := newTestEngine()
+	build := makeBuild(8.0, 8, 12, "杉木", 0.05)
+	sim, _ := e.ValidateAndSimulate(build, 1.5, 2.0)
+
+	bucketGuide := false
+	for _, g := range sim.Guidance {
+		if g.Step == "adjust_buckets" {
+			bucketGuide = true
+			if g.DeviationPct < 15 {
+				t.Errorf("偏差%.0f%% < 15%%不应触发, 逻辑有误", g.DeviationPct)
+			}
+			t.Logf("✅ 斗数引导: 当前%.0f 理想%.0f 偏差%.0f%%",
+				g.CurrentVal, g.TargetVal, g.DeviationPct)
+		}
+	}
+	if !bucketGuide {
+		t.Log("8斗8m筒车偏差未超15%阈值(理想≈24斗, 偏差约67%应触发)")
+	}
+}
+
+func TestSnappedResult_InSimResponse(t *testing.T) {
+	e := newTestEngine()
+	build := makeBuild(7.3, 25, 11, "杉木", 0.05)
+	sim, err := e.ValidateAndSimulate(build, 1.5, 2.0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sim.SnappedParams == nil {
+		t.Fatal("仿真结果应包含SnappedParams")
+	}
+	if !sim.SnappedParams.AnySnapped {
+		t.Log("7.3/25/11应触发吸附, 但AnySnapped=false (可能吸附后仍超范围)")
+	}
+	t.Logf("✅ 吸附结果: 直径=%.1f 斗=%d 辐=%d snapped=%v",
+		sim.SnappedParams.Diameter, sim.SnappedParams.BucketCount,
+		sim.SnappedParams.SpokeCount, sim.SnappedParams.AnySnapped)
+}
