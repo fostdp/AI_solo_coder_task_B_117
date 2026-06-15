@@ -136,31 +136,37 @@ func (s *LPScheduler) solveGreedyLP(cands []wheelCandidate, field *models.Irriga
 	plans := make([]models.WheelPlan, 0, len(cands))
 	startHour := 0
 
+	deliveryRate := 1.0 - s.params.CanalLossRate
+	if deliveryRate <= 0 {
+		deliveryRate = 0.7
+	}
+
 	for _, c := range cands {
 		if remaining <= 0 {
 			break
 		}
 		maxHours := math.Min(s.params.MaxRunHoursPerWheel, deadline)
 		maxWater := c.flowM3H * maxHours
-		assignM3 := math.Min(remaining, maxWater)
+		assignM3 := math.Min(remaining/deliveryRate, maxWater)
+		deliveredM3 := assignM3 * deliveryRate
 		assignHours := assignM3 / c.flowM3H
 		if assignM3 <= 0 {
 			continue
 		}
 
-		eqPumpKWh := (assignM3 / s.params.PumpFlowRateM3H) * s.params.PumpPowerKW
+		eqPumpKWh := (deliveredM3 / s.params.PumpFlowRateM3H) * s.params.PumpPowerKW
 		wheelPlan := models.WheelPlan{
 			WaterwheelID:   c.id,
 			WaterwheelName: c.name,
 			RunHours:       round2(assignHours),
-			WaterM3:        round2(assignM3),
+			WaterM3:        round2(deliveredM3),
 			EnergySavedKWh: round2(eqPumpKWh),
 			CostSavedYuan:  round2(eqPumpKWh * elecCost),
 			StartHour:      startHour,
 		}
 		plans = append(plans, wheelPlan)
-		totalWheelM3 += assignM3
-		remaining -= assignM3
+		totalWheelM3 += deliveredM3
+		remaining -= deliveredM3
 		startHour += int(math.Ceil(assignHours))
 	}
 
