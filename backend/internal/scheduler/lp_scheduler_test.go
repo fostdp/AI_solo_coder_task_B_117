@@ -440,3 +440,66 @@ func TestRenewableRatio_ValidRange(t *testing.T) {
 		})
 	}
 }
+
+// ============================================================
+// 渠道输水损耗系数验证
+// ============================================================
+
+func TestSolveGreedyLP_CanalLossRate(t *testing.T) {
+	s := newTestScheduler()
+	field := makeField(1, 500, []int64{1})
+	cands := []wheelCandidate{
+		{id: 1, name: "A", flowM3H: 50, actualFlow: 50, capacityM3: 1000, efficiency: 0.5, distanceCost: 0},
+	}
+	req := models.ScheduleRequest{
+		FieldID:           1,
+		TargetWaterM3:     500,
+		DeadlineHours:     24,
+		UseWaterwheelIDs:  []int64{1},
+		AllowElectricPump: false,
+	}
+
+	sol := s.solveGreedyLP(cands, field, req, 0.85)
+
+	deliveryRate := 1.0 - s.params.CanalLossRate
+	if deliveryRate <= 0 {
+		t.Fatalf("CanalLossRate=%.2f 导致到达率<=0", s.params.CanalLossRate)
+	}
+
+	if sol.TotalWaterM3 > 500+1.0 {
+		t.Errorf("有损耗时总送达水量不应超过目标太多: %.2f", sol.TotalWaterM3)
+	}
+
+	t.Logf("✅ 渠道损耗率=%.0f%%, 到达率=%.0f%%, 送达水量=%.2fm³ (目标500)",
+		s.params.CanalLossRate*100, deliveryRate*100, sol.TotalWaterM3)
+}
+
+func TestSolveGreedyLP_CanalLossZeroVsNonZero(t *testing.T) {
+	s := newTestScheduler()
+	field := makeField(1, 500, []int64{1, 2})
+	cands := []wheelCandidate{
+		{id: 1, name: "A", flowM3H: 30, actualFlow: 30, capacityM3: 600, efficiency: 0.5, distanceCost: 0},
+		{id: 2, name: "B", flowM3H: 40, actualFlow: 40, capacityM3: 800, efficiency: 0.5, distanceCost: 0},
+	}
+	req := models.ScheduleRequest{
+		FieldID:           1,
+		TargetWaterM3:     500,
+		DeadlineHours:     24,
+		AllowElectricPump: false,
+	}
+
+	sol := s.solveGreedyLP(cands, field, req, 0.85)
+	deliveredWithLoss := sol.TotalWaterM3
+
+	origLoss := s.params.CanalLossRate
+	s.params.CanalLossRate = 0
+	solNoLoss := s.solveGreedyLP(cands, field, req, 0.85)
+	s.params.CanalLossRate = origLoss
+
+	t.Logf("有损耗(%.0f%%)送达=%.2fm³ vs 无损耗送达=%.2fm³",
+		origLoss*100, deliveredWithLoss, solNoLoss.TotalWaterM3)
+
+	if deliveredWithLoss > solNoLoss.TotalWaterM3+1.0 {
+		t.Error("有损耗时送达水量不应高于无损耗")
+	}
+}
