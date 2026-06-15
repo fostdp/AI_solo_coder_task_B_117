@@ -18,13 +18,23 @@
         </div>
     </header>
 
+    <div class="tabs-nav" id="tabsNav">
+        <button class="tab-btn active" data-tab="monitor">📊 监测中心</button>
+        <button class="tab-btn" data-tab="scheduler">🌾 灌溉调度</button>
+        <button class="tab-btn" data-tab="forecast">🌊 水位预测</button>
+        <button class="tab-btn" data-tab="efficiency">⚖️ 能效对比</button>
+        <button class="tab-btn" data-tab="build">🏗️ 虚拟建造</button>
+    </div>
+
     <main class="app-main">
-        <aside class="sidebar">
+        <aside class="sidebar" id="monitorSidebar">
             <div class="sidebar-title">筒车列表</div>
             <div class="waterwheel-list" id="waterwheelList"></div>
         </aside>
 
         <section class="content">
+            <!-- 监测中心Tab -->
+            <div class="tab-content" id="tab-monitor">
             <div class="canvas-container">
                 <canvas id="waterwheelCanvas" width="800" height="500"></canvas>
                 <div class="canvas-overlay">
@@ -111,6 +121,43 @@
                     </div>
                 </div>
             </div>
+            </div><!-- end tab-monitor -->
+
+            <!-- 灌溉调度Tab -->
+            <div class="tab-content hidden" id="tab-scheduler">
+                <div class="tab-header-bar">
+                    <h2 class="tab-title">🌾 多筒车协同灌溉调度</h2>
+                    <div class="tab-subtitle">基于田间需水量与筒车分布，采用线性规划最优调度</div>
+                </div>
+                <div id="schedulerPanelRoot" class="fp-wrap"></div>
+            </div>
+
+            <!-- 水位预测Tab -->
+            <div class="tab-content hidden" id="tab-forecast">
+                <div class="tab-header-bar">
+                    <h2 class="tab-title">🌊 季节性水位预测与高度调节</h2>
+                    <div class="tab-subtitle">基于历史水文数据预测水位，自适应调整筒车安装高度</div>
+                </div>
+                <div id="forecastPanelRoot" class="fp-wrap"></div>
+            </div>
+
+            <!-- 能效对比Tab -->
+            <div class="tab-content hidden" id="tab-efficiency">
+                <div class="tab-header-bar">
+                    <h2 class="tab-title">⚖️ 古代筒车 vs 现代水泵 能效对比</h2>
+                    <div class="tab-subtitle">全生命周期分析古代技术节能优势</div>
+                </div>
+                <div id="efficiencyPanelRoot" class="fp-wrap"></div>
+            </div>
+
+            <!-- 虚拟建造Tab -->
+            <div class="tab-content hidden" id="tab-build">
+                <div class="tab-header-bar">
+                    <h2 class="tab-title">🏗️ 公众虚拟建造筒车</h2>
+                    <div class="tab-subtitle">拖拽部件搭建创意筒车，实时查看提水效果与结构应力</div>
+                </div>
+                <div id="builderPanelRoot" class="vb-wrap"></div>
+            </div>
         </section>
     </main>
 
@@ -127,6 +174,8 @@
     <script src="js/config.js"></script>
     <script src="js/norria_view.js"></script>
     <script src="js/efficiency_panel.js"></script>
+    <script src="js/feature_panels.js"></script>
+    <script src="js/builder.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>
