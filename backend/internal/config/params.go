@@ -160,45 +160,55 @@ type SchedulerParams struct {
 	CO2PerKWhKg          float64
 	LPSolveIterations    int
 	PenaltyPumpUsage     float64
+	CanalLossRate        float64
+	EnsembleMembers      int
+	NormalizedEffBaseKW  float64
+	SnapGridSize         float64
 }
 
 type ForecastingParams struct {
-	DefaultHorizonDays   int
-	SeasonalWindowYears  int
-	ARWeight             float64
-	SeasonWeight         float64
-	TrendWeight          float64
-	MinConfidence        float64
-	HeightStepCm         float64
-	TargetSubmergence    float64
-	MaxAdjustmentCm      float64
-	WarningDropRatio     float64
+	DefaultHorizonDays    int
+	SeasonalWindowYears   int
+	ARWeight              float64
+	SeasonWeight          float64
+	TrendWeight           float64
+	MinConfidence         float64
+	HeightStepCm          float64
+	TargetSubmergence     float64
+	MaxAdjustmentCm       float64
+	WarningDropRatio      float64
+	EnsembleSize          int
+	EnsembleNoiseScale    float64
 }
 
 type ComparisonParams struct {
-	ModernPumpEfficiency   float64
-	ModernPumpCostPerKW    float64
+	ModernPumpEfficiency    float64
+	ModernPumpCostPerKW     float64
 	WaterwheelBuildCostYuan float64
-	WaterwheelMaintainYuan float64
-	CO2GridFactorKgPerKWh  float64
-	DiscountRate           float64
-	ProjectLifetimeYears   int
-	DefaultCompareDays     int
-	LaborCostPerDayYuan    float64
+	WaterwheelMaintainYuan  float64
+	CO2GridFactorKgPerKWh   float64
+	DiscountRate            float64
+	ProjectLifetimeYears    int
+	DefaultCompareDays      int
+	LaborCostPerDayYuan     float64
+	NormalizedEffBaseKW     float64
+	PumpLoadFactor          float64
 }
 
 type BuildParams struct {
-	MinDiameterM       float64
-	MaxDiameterM       float64
-	MinBuckets         int
-	MaxBuckets         int
-	MinSpokes          int
-	MaxSpokes          int
-	MaxPartCount       int
-	Materials          []string
+	MinDiameterM        float64
+	MaxDiameterM        float64
+	MinBuckets          int
+	MaxBuckets          int
+	MinSpokes           int
+	MaxSpokes           int
+	MaxPartCount        int
+	Materials           []string
 	DefaultFlowVelocity float64
-	DefaultWaterDrop   float64
-	StressLimit        float64
+	DefaultWaterDrop    float64
+	StressLimit         float64
+	SnapGridSize        float64
+	SnapThreshold       float64
 }
 
 func DefaultSchedulerParams() *SchedulerParams {
@@ -212,6 +222,10 @@ func DefaultSchedulerParams() *SchedulerParams {
 		CO2PerKWhKg:         0.785,
 		LPSolveIterations:   200,
 		PenaltyPumpUsage:    0.15,
+		CanalLossRate:       0.12,
+		EnsembleMembers:     5,
+		NormalizedEffBaseKW: 10.0,
+		SnapGridSize:        0.5,
 	}
 }
 
@@ -227,6 +241,8 @@ func DefaultForecastingParams() *ForecastingParams {
 		TargetSubmergence:   0.35,
 		MaxAdjustmentCm:     80.0,
 		WarningDropRatio:    0.55,
+		EnsembleSize:        50,
+		EnsembleNoiseScale:  0.1,
 	}
 }
 
@@ -241,21 +257,25 @@ func DefaultComparisonParams() *ComparisonParams {
 		ProjectLifetimeYears:    30,
 		DefaultCompareDays:      365,
 		LaborCostPerDayYuan:     260.0,
+		NormalizedEffBaseKW:     10.0,
+		PumpLoadFactor:          0.75,
 	}
 }
 
 func DefaultBuildParams() *BuildParams {
 	return &BuildParams{
 		MinDiameterM:        2.0,
-		MaxDiameterM:       15.0,
-		MinBuckets:         6,
-		MaxBuckets:         48,
-		MinSpokes:          4,
-		MaxSpokes:          24,
-		MaxPartCount:       200,
-		Materials:          []string{"楠木", "杉木", "柏木", "松木", "竹制", "铸铁"},
+		MaxDiameterM:        15.0,
+		MinBuckets:          6,
+		MaxBuckets:          48,
+		MinSpokes:           4,
+		MaxSpokes:           24,
+		MaxPartCount:        200,
+		Materials:           []string{"楠木", "杉木", "柏木", "松木", "竹制", "铸铁"},
 		DefaultFlowVelocity: 1.5,
-		DefaultWaterDrop:   2.0,
-		StressLimit:        0.85,
+		DefaultWaterDrop:    2.0,
+		StressLimit:         0.85,
+		SnapGridSize:        0.5,
+		SnapThreshold:       0.3,
 	}
 }
