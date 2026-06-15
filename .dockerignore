@@ -1,0 +1,45 @@
+# Git
+.git
+.gitignore
+.github
+
+# Go
+backend/*.out
+backend/*.test
+backend/*.exe
+backend/vendor/
+backend/.cache/
+backend/go.sum.backup
+
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.next/
+*.log
+
+# Python
+simulator/__pycache__/
+simulator/*.pyc
+simulator/.venv/
+simulator/venv/
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Data
+*.sql.bak
+*.dump
+data/
