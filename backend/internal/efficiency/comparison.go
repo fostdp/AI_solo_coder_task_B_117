@@ -121,12 +121,17 @@ func (c *AncientsVsModern) buildComparison(ctx context.Context, wheel *models.Wa
 	}
 
 	pumpEff := c.params.ModernPumpEfficiency
+	pumpLoadFactor := c.params.PumpLoadFactor
+	if pumpLoadFactor <= 0 {
+		pumpLoadFactor = 0.75
+	}
+	effectivePumpEff := pumpEff * (0.3 + 0.7*pumpLoadFactor)
 	pumpHydraulicPowerKW := (rho * g * avgFlowM3H * liftHeightM) / 3.6e6
-	pumpShaftPowerKW := pumpHydraulicPowerKW / pumpEff
+	pumpShaftPowerKW := pumpHydraulicPowerKW / effectivePumpEff
 	if pumpShaftPowerKW < 1.0 {
 		pumpShaftPowerKW = 1.0
 	}
-	pumpTotalEnergyKWh := pumpShaftPowerKW * runHours
+	pumpTotalEnergyKWh := pumpShaftPowerKW * runHours * pumpLoadFactor
 	elecCostYuan := pumpTotalEnergyKWh * c.params.DefaultElecCostYuan
 	pumpCO2Kg := pumpTotalEnergyKWh * c.params.CO2GridFactorKgPerKWh
 
@@ -179,14 +184,33 @@ func (c *AncientsVsModern) buildComparison(ctx context.Context, wheel *models.Wa
 		}
 	}
 
+	normalizedEffRatio := 0.0
+	baseKW := c.params.NormalizedEffBaseKW
+	if baseKW <= 0 {
+		baseKW = 10.0
+	}
+	wheelNormEff := 0.0
+	pumpNormEff := 0.0
+	if waterwheelMetrics.TotalEnergyKWh > 0 && totalWaterM3 > 0 {
+		wheelNormEff = (totalWaterM3 * liftHeightM * rho * g / 3.6e6) / waterwheelMetrics.TotalEnergyKWh
+	}
+	if pumpTotalEnergyKWh > 0 && totalWaterM3 > 0 {
+		pumpNormEff = (totalWaterM3 * liftHeightM * rho * g / 3.6e6) / pumpTotalEnergyKWh
+	}
+	if pumpNormEff > 0 {
+		normalizedEffRatio = round3(wheelNormEff / pumpNormEff)
+	}
+
 	adv := models.AncientEdge{
-		CostSavedYuan: round2(annualCostSaved),
-		EnergySavedKWh: round2(annualEnergySaved),
-		CO2SavedKg:     round2(annualCO2Saved),
-		CostRatio:      round3(costRatio),
-		EnergyRatio:    round3(energyRatio),
-		PaybackYears:   round2(paybackYears),
-		BreakEvenM3:    round2(breakEvenM3),
+		CostSavedYuan:      round2(annualCostSaved),
+		EnergySavedKWh:     round2(annualEnergySaved),
+		CO2SavedKg:         round2(annualCO2Saved),
+		CostRatio:          round3(costRatio),
+		EnergyRatio:        round3(energyRatio),
+		PaybackYears:       round2(paybackYears),
+		BreakEvenM3:        round2(breakEvenM3),
+		NormalizedEffRatio: normalizedEffRatio,
+		PumpLoadFactor:     round3(pumpLoadFactor),
 	}
 
 	comp := &models.EfficiencyComparison{
