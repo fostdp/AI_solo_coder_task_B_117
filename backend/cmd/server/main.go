@@ -17,16 +17,16 @@ import (
 	"waterwheel-monitor/internal/config"
 	"waterwheel-monitor/internal/database"
 	"waterwheel-monitor/internal/dtu_receiver"
-	"waterwheel-monitor/internal/efficiency"
-	"waterwheel-monitor/internal/forecasting"
+	"waterwheel-monitor/internal/pump_comparator"
+	seasonal_adapter "waterwheel-monitor/internal/seasonal_adapter"
 	"waterwheel-monitor/internal/handlers"
 	"waterwheel-monitor/internal/hydraulic_model"
 	"waterwheel-monitor/internal/metrics"
 	"waterwheel-monitor/internal/models"
 	"waterwheel-monitor/internal/pipeline"
-	"waterwheel-monitor/internal/scheduler"
+	irrigation_scheduler "waterwheel-monitor/internal/irrigation_scheduler"
 	"waterwheel-monitor/internal/shape_optimizer"
-	"waterwheel-monitor/internal/virtualbuild"
+	virtual_builder "waterwheel-monitor/internal/virtual_builder"
 
 	"net/http/pprof"
 )
@@ -69,10 +69,10 @@ func main() {
 	optimizer := shape_optimizer.New(db, chans, optimizerParams, hydraulicParams)
 	alerter := alarm_mqtt.New(db, chans, mqttCfg, alarmParams)
 
-	lpScheduler := scheduler.NewLPScheduler(db, schedulerParams)
-	forecaster := forecasting.NewWaterLevelForecaster(db, forecastParams)
-	comparer := efficiency.NewAncientsVsModern(db, compParams)
-	builder := virtualbuild.NewBuildEngine(db, buildParams)
+	lpScheduler := irrigation_scheduler.NewLPScheduler(db, schedulerParams)
+	forecaster := seasonal_adapter.NewWaterLevelForecaster(db, forecastParams)
+	comparer := pump_comparator.NewAncientsVsModern(db, compParams)
+	builder := virtual_builder.NewBuildEngine(db, buildParams)
 
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	defer rootCancel()
