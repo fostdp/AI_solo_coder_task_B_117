@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>古代筒车自动提水效率监测与水力优化系统</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header class="app-header">
+        <div class="header-content">
+            <h1>古代筒车自动提水效率监测与水力优化系统</h1>
+            <div class="header-stats" id="headerStats">
+                <span class="stat"><span class="stat-label">筒车总数:</span> <span id="totalWheels">0</span></span>
+                <span class="stat"><span class="stat-label">在线监测:</span> <span id="onlineWheels">0</span></span>
+                <span class="stat"><span class="stat-label">告警数:</span> <span id="alertCount" class="alert-count">0</span></span>
+            </div>
+        </div>
+    </header>
+
+    <main class="app-main">
+        <aside class="sidebar">
+            <div class="sidebar-title">筒车列表</div>
+            <div class="waterwheel-list" id="waterwheelList"></div>
+        </aside>
+
+        <section class="content">
+            <div class="canvas-container">
+                <canvas id="waterwheelCanvas" width="800" height="500"></canvas>
+                <div class="canvas-overlay">
+                    <div class="canvas-title" id="canvasTitle">请选择筒车</div>
+                    <div class="canvas-controls">
+                        <button id="playPauseBtn" class="ctrl-btn" disabled>⏸ 暂停</button>
+                        <button id="speedBtn" class="ctrl-btn" disabled>1x 速度</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-label">转速</div>
+                    <div class="metric-value" id="metricSpeed">--</div>
+                    <div class="metric-unit">rpm</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">提水量</div>
+                    <div class="metric-value" id="metricLift">--</div>
+                    <div class="metric-unit">m³/h</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">水位落差</div>
+                    <div class="metric-value" id="metricDrop">--</div>
+                    <div class="metric-unit">m</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">水流流速</div>
+                    <div class="metric-value" id="metricFlow">--</div>
+                    <div class="metric-unit">m/s</div>
+                </div>
+                <div class="metric-card efficiency">
+                    <div class="metric-label">机械效率</div>
+                    <div class="metric-value" id="metricMechEff">--</div>
+                    <div class="metric-unit">%</div>
+                </div>
+                <div class="metric-card efficiency">
+                    <div class="metric-label">水力利用率</div>
+                    <div class="metric-value" id="metricHydEff">--</div>
+                    <div class="metric-unit">%</div>
+                </div>
+            </div>
+
+            <div class="panels">
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3>效率曲线</h3>
+                        <select id="chartRange">
+                            <option value="1">最近1小时</option>
+                            <option value="6">最近6小时</option>
+                            <option value="24" selected>最近24小时</option>
+                            <option value="168">最近7天</option>
+                        </select>
+                    </div>
+                    <canvas id="efficiencyChart" height="200"></canvas>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3>水利分析</h3>
+                        <button id="runOptimizationBtn" class="action-btn" disabled>运行结构优化</button>
+                    </div>
+                    <div class="analysis-content" id="analysisContent">
+                        <div class="analysis-empty">请选择筒车查看分析数据</div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3>告警记录</h3>
+                    </div>
+                    <div class="alerts-list" id="alertsList">
+                        <div class="analysis-empty">暂无告警</div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3>优化历史</h3>
+                    </div>
+                    <div class="optimization-list" id="optimizationList">
+                        <div class="analysis-empty">暂无优化记录</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <div id="detailModal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">筒车详情</h2>
+                <button class="close-btn" onclick="document.getElementById('detailModal').classList.add('hidden')">&times;</button>
+            </div>
+            <div class="modal-body" id="modalBody"></div>
+        </div>
+    </div>
+
+    <script src="js/config.js"></script>
+    <script src="js/norria_view.js"></script>
+    <script src="js/efficiency_panel.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
