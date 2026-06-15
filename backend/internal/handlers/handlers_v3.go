@@ -9,26 +9,26 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"waterwheel-monitor/internal/config"
-	"waterwheel-monitor/internal/efficiency"
-	"waterwheel-monitor/internal/forecasting"
+	"waterwheel-monitor/internal/pump_comparator"
+	seasonal_adapter "waterwheel-monitor/internal/seasonal_adapter"
 	"waterwheel-monitor/internal/models"
-	"waterwheel-monitor/internal/scheduler"
-	"waterwheel-monitor/internal/virtualbuild"
+	irrigation_scheduler "waterwheel-monitor/internal/irrigation_scheduler"
+	virtual_builder "waterwheel-monitor/internal/virtual_builder"
 )
 
 type V3Handler struct {
-	scheduler   *scheduler.LPScheduler
-	forecaster  *forecasting.WaterLevelForecaster
-	comparison  *efficiency.AncientsVsModern
-	builder     *virtualbuild.BuildEngine
+	scheduler   *irrigation_scheduler.LPScheduler
+	forecaster  *seasonal_adapter.WaterLevelForecaster
+	comparison  *pump_comparator.AncientsVsModern
+	builder     *virtual_builder.BuildEngine
 	compParams  *config.ComparisonParams
 }
 
 func NewV3(
-	s *scheduler.LPScheduler,
-	f *forecasting.WaterLevelForecaster,
-	c *efficiency.AncientsVsModern,
-	b *virtualbuild.BuildEngine,
+	s *irrigation_scheduler.LPScheduler,
+	f *seasonal_adapter.WaterLevelForecaster,
+	c *pump_comparator.AncientsVsModern,
+	b *virtual_builder.BuildEngine,
 	cp *config.ComparisonParams,
 ) *V3Handler {
 	return &V3Handler{scheduler: s, forecaster: f, comparison: c, builder: b, compParams: cp}
