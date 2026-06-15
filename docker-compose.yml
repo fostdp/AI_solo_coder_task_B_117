@@ -1,0 +1,128 @@
+version: "3.8"
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:2.14.0-pg16
+    container_name: waterwheel-timescaledb
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-waterwheel}
+      POSTGRES_USER: ${POSTGRES_USER:-waterwheel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-waterwheel123}
+      TIMESCALEDB_TELEMETRY: "off"
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+      - ./deploy/timescale-tune.sh:/docker-entrypoint-initdb.d/002-tune.sh:ro
+    command: >
+      postgres
+      -c shared_preload_libraries=timescaledb
+      -c max_connections=100
+      -c work_mem=4MB
+      -c maintenance_work_mem=64MB
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-waterwheel} -d ${POSTGRES_DB:-waterwheel}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  mqtt-broker:
+    image: eclipse-mosquitto:2.0.18
+    container_name: waterwheel-mqtt
+    ports:
+      - "${MQTT_PORT:-1883}:1883"
+      - "${MQTT_WS_PORT:-9001}:9001"
+    volumes:
+      - ./deploy/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mqtt_data:/mosquitto/data
+      - mqtt_log:/mosquitto/log
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-t", "$SYS/#", "-C", "1", "-W", "3"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: waterwheel-backend
+    environment:
+      SERVER_PORT: "8080"
+      DB_HOST: timescaledb
+      DB_PORT: "5432"
+      DB_USER: ${POSTGRES_USER:-waterwheel}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-waterwheel123}
+      DB_NAME: ${POSTGRES_DB:-waterwheel}
+      DB_SSLMODE: disable
+      MQTT_BROKER: tcp://mqtt-broker:1883
+      MQTT_CLIENT_ID: waterwheel-backend
+      MQTT_USERNAME: ${MQTT_USERNAME:-admin}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:-public}
+      MQTT_TOPIC_PREFIX: waterwheel/alerts
+      EFFICIENCY_ALERT_THRESHOLD: "0.8"
+      GIN_MODE: release
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      mqtt-broker:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: waterwheel-frontend
+    ports:
+      - "${FRONTEND_PORT:-8081}:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  simulator:
+    build:
+      context: .
+      dockerfile: Dockerfile.simulator
+    container_name: waterwheel-simulator
+    environment:
+      API_BASE_URL: http://backend:8080/api
+      WHEEL_COUNT: "10"
+      REPORT_INTERVAL_SECONDS: ${SIM_INTERVAL:-300}
+      SIMULATION_MODE: ${SIM_MODE:-realistic}
+      WATER_FLOW_BASE: "1.5"
+      ROTATION_SPEED_BASE: "8.0"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    profiles:
+      - simulator
+
+  prometheus:
+    image: prom/prometheus:v2.49.1
+    container_name: waterwheel-prometheus
+    ports:
+      - "${PROM_PORT:-9090}:9090"
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prom_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+volumes:
+  timescale_data:
+  mqtt_data:
+  mqtt_log:
+  prom_data:
