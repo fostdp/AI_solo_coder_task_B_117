@@ -11,7 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"waterwheel-monitor/internal/database"
-	"waterwheel-monitor/internal/efficiency"
+	"waterwheel-monitor/internal/pump_comparator"
 	"waterwheel-monitor/internal/models"
 	"waterwheel-monitor/internal/mqtt"
 	"waterwheel-monitor/internal/optimizer"
@@ -19,13 +19,13 @@ import (
 
 type Handler struct {
 	db         *database.Database
-	effCalc    *efficiency.Calculator
+	effCalc    *pump_comparator.Calculator
 	ga         *optimizer.GAOptimizer
 	alertMQTT  *mqtt.AlertClient
 	alertThresh float64
 }
 
-func New(db *database.Database, effCalc *efficiency.Calculator, ga *optimizer.GAOptimizer,
+func New(db *database.Database, effCalc *pump_comparator.Calculator, ga *optimizer.GAOptimizer,
 	alertMQTT *mqtt.AlertClient, alertThresh float64) *Handler {
 	return &Handler{
 		db:          db,
