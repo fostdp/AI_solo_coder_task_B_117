@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"math/rand"
 	"time"
 
 	"waterwheel-monitor/internal/config"
@@ -111,10 +112,72 @@ func (f *WaterLevelForecaster) GenerateForecast(ctx context.Context, wheelID int
 	_ = seasonFactor
 
 	volatility := f.calcVolatility(history, futureMonth)
-	lowerDrop := predDrop * (1 - volatility)
-	upperDrop := predDrop * (1 + volatility)
-	lowerFlow := predFlow * (1 - volatility)
-	upperFlow := predFlow * (1 + volatility)
+
+	ensembleSize := f.params.EnsembleSize
+	if ensembleSize <= 0 {
+		ensembleSize = 50
+	}
+	noiseScale := f.params.EnsembleNoiseScale
+	if noiseScale <= 0 {
+		noiseScale = 0.1
+	}
+
+	ensembleDrops := make([]float64, ensembleSize)
+	ensembleFlows := make([]float64, ensembleSize)
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	for i := 0; i < ensembleSize; i++ {
+		perturbed := make([]models.HistoricalHydrology, len(history))
+		copy(perturbed, history)
+		for j := range perturbed {
+			perturbed[j].AvgDrop *= (1.0 + rng.NormFloat64()*noiseScale)
+			perturbed[j].AvgFlow *= (1.0 + rng.NormFloat64()*noiseScale)
+		}
+
+		var eDrop, eFlow float64
+		perturbedMonthly := make(map[int]*seasonalBaseline)
+		for _, h := range perturbed {
+			key := h.Month
+			if _, ok := perturbedMonthly[key]; !ok {
+				perturbedMonthly[key] = &seasonalBaseline{}
+			}
+			b := perturbedMonthly[key]
+			b.avgDrop += h.AvgDrop
+			b.avgFlow += h.AvgFlow
+			b.count++
+		}
+		for _, b := range perturbedMonthly {
+			if b.count > 0 {
+				b.avgDrop /= float64(b.count)
+				b.avgFlow /= float64(b.count)
+			}
+		}
+
+		if b, ok := perturbedMonthly[futureMonth]; ok && b.count > 0 {
+			sD := b.avgDrop * f.params.SeasonWeight
+			sF := b.avgFlow * f.params.SeasonWeight
+			arD, arF := f.autoregressive(perturbed, horizonDays)
+			tD, tF := f.trendComponent(perturbed, horizonDays)
+			eDrop = sD + arD*f.params.ARWeight + tD*f.params.TrendWeight
+			eFlow = sF + arF*f.params.ARWeight + tF*f.params.TrendWeight
+		} else {
+			arD, arF := f.autoregressive(perturbed, horizonDays)
+			eDrop = arD * f.params.SeasonWeight
+			eFlow = arF * f.params.SeasonWeight
+		}
+		ensembleDrops[i] = eDrop
+		ensembleFlows[i] = eFlow
+	}
+
+	sortFloat64s(ensembleDrops)
+	sortFloat64s(ensembleFlows)
+
+	predDrop = percentile(ensembleDrops, 0.5)
+	predFlow = percentile(ensembleFlows, 0.5)
+	lowerDrop = percentile(ensembleDrops, 0.1)
+	upperDrop = percentile(ensembleDrops, 0.9)
+	lowerFlow = percentile(ensembleFlows, 0.1)
+	upperFlow = percentile(ensembleFlows, 0.9)
 
 	confidence := 1.0 - volatility
 	if confidence < f.params.MinConfidence {
@@ -375,3 +438,33 @@ func (f *WaterLevelForecaster) MarkAdjustmentImplemented(ctx context.Context, ad
 
 func round2(v float64) float64 { return math.Round(v*100) / 100 }
 func round3(v float64) float64 { return math.Round(v*1000) / 1000 }
+
+func sortFloat64s(a []float64) {
+	for i := 1; i < len(a); i++ {
+		key := a[i]
+		j := i - 1
+		for j >= 0 && a[j] > key {
+			a[j+1] = a[j]
+			j--
+		}
+		a[j+1] = key
+	}
+}
+
+func percentile(sorted []float64, p float64) float64 {
+	n := len(sorted)
+	if n == 0 {
+		return 0
+	}
+	if n == 1 {
+		return sorted[0]
+	}
+	idx := p * float64(n-1)
+	lo := int(math.Floor(idx))
+	hi := int(math.Ceil(idx))
+	if lo == hi {
+		return sorted[lo]
+	}
+	frac := idx - float64(lo)
+	return sorted[lo]*(1-frac) + sorted[hi]*frac
+}
