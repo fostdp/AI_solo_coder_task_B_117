@@ -37,6 +37,8 @@ var materialTable = map[string]materialDensity{
 }
 
 func (e *BuildEngine) ValidateAndSimulate(build *models.VirtualBuild, flowVelocity, waterDrop float64) (*models.BuildSimulation, error) {
+	snapped := e.SnapPosition(build)
+
 	if build.Diameter < e.params.MinDiameterM || build.Diameter > e.params.MaxDiameterM {
 		return nil, fmt.Errorf("直径 %.1fm 超出允许范围 (%.1f ~ %.1f)", build.Diameter, e.params.MinDiameterM, e.params.MaxDiameterM)
 	}
@@ -58,6 +60,9 @@ func (e *BuildEngine) ValidateAndSimulate(build *models.VirtualBuild, flowVeloci
 	}
 
 	sim := e.runSimulation(build, flowVelocity, waterDrop)
+	sim.SnappedParams = snapped
+	sim.Guidance = e.generateGuidance(build, sim)
+
 	build.PredictedLift = sim.LiftRate
 	build.PredictedEff = sim.BucketFillEff * sim.StressLevel / 2.0
 	if build.PredictedEff > 0.7 {
@@ -277,3 +282,126 @@ func (e *BuildEngine) GenerateBlueprint(build *models.VirtualBuild) string {
 
 func round2(v float64) float64 { return math.Round(v*100) / 100 }
 func round3(v float64) float64 { return math.Round(v*1000) / 1000 }
+
+func (e *BuildEngine) SnapPosition(build *models.VirtualBuild) *models.SnappedResult {
+	grid := e.params.SnapGridSize
+	if grid <= 0 {
+		grid = 0.5
+	}
+	threshold := e.params.SnapThreshold
+	if threshold <= 0 {
+		threshold = 0.3
+	}
+
+	originalDiameter := build.Diameter
+	originalBuckets := build.BucketCount
+	originalSpokes := build.SpokeCount
+
+	snappedDiameter := math.Round(build.Diameter/grid) * grid
+	if math.Abs(build.Diameter-snappedDiameter) < threshold*grid {
+		build.Diameter = round2(snappedDiameter)
+	}
+
+	snappedBuckets := int(math.Round(float64(build.BucketCount)/2.0) * 2.0)
+	if math.Abs(float64(build.BucketCount-snappedBuckets)) <= 1 {
+		build.BucketCount = snappedBuckets
+	}
+
+	snappedSpokes := int(math.Round(float64(build.SpokeCount)/2.0) * 2.0)
+	if math.Abs(float64(build.SpokeCount-snappedSpokes)) <= 1 {
+		build.SpokeCount = snappedSpokes
+	}
+
+	anySnapped := build.Diameter != originalDiameter ||
+		build.BucketCount != originalBuckets ||
+		build.SpokeCount != originalSpokes
+
+	return &models.SnappedResult{
+		Diameter:    build.Diameter,
+		BucketCount: build.BucketCount,
+		SpokeCount:  build.SpokeCount,
+		AnySnapped:  anySnapped,
+	}
+}
+
+func (e *BuildEngine) generateGuidance(build *models.VirtualBuild, sim *models.BuildSimulation) []models.BuildGuidance {
+	var guides []models.BuildGuidance
+
+	idealBucketPerMeter := 3.0
+	idealBuckets := int(math.Round(build.Diameter * idealBucketPerMeter))
+	if idealBuckets < e.params.MinBuckets {
+		idealBuckets = e.params.MinBuckets
+	}
+	if idealBuckets > e.params.MaxBuckets {
+		idealBuckets = e.params.MaxBuckets
+	}
+	bucketDev := 0.0
+	if idealBuckets > 0 {
+		bucketDev = math.Abs(float64(build.BucketCount-idealBuckets)) / float64(idealBuckets) * 100
+	}
+	if bucketDev > 15 {
+		guides = append(guides, models.BuildGuidance{
+			Step:         "adjust_buckets",
+			Message:      fmt.Sprintf("当前%d斗偏离理想%d斗(%.0f%%)，建议调整水斗数以匹配直径", build.BucketCount, idealBuckets, bucketDev),
+			ParamName:    "bucket_count",
+			CurrentVal:   float64(build.BucketCount),
+			TargetVal:    float64(idealBuckets),
+			DeviationPct: round2(bucketDev),
+		})
+	}
+
+	idealSpokePerMeter := 1.5
+	idealSpokes := int(math.Round(build.Diameter * idealSpokePerMeter))
+	if idealSpokes < e.params.MinSpokes {
+		idealSpokes = e.params.MinSpokes
+	}
+	if idealSpokes > e.params.MaxSpokes {
+		idealSpokes = e.params.MaxSpokes
+	}
+	spokeDev := 0.0
+	if idealSpokes > 0 {
+		spokeDev = math.Abs(float64(build.SpokeCount-idealSpokes)) / float64(idealSpokes) * 100
+	}
+	if spokeDev > 20 {
+		guides = append(guides, models.BuildGuidance{
+			Step:         "adjust_spokes",
+			Message:      fmt.Sprintf("当前%d辐偏离理想%d辐(%.0f%%)，辐条过少结构不稳，过多增加重量", build.SpokeCount, idealSpokes, spokeDev),
+			ParamName:    "spoke_count",
+			CurrentVal:   float64(build.SpokeCount),
+			TargetVal:    float64(idealSpokes),
+			DeviationPct: round2(spokeDev),
+		})
+	}
+
+	if sim.StressLevel > e.params.StressLimit*0.8 {
+		guides = append(guides, models.BuildGuidance{
+			Step:         "reduce_stress",
+			Message:      fmt.Sprintf("应力%.0f%%接近阈值%.0f%%，建议增加辐条或改用高强度材质", sim.StressLevel*100, e.params.StressLimit*100),
+			ParamName:    "stress_level",
+			CurrentVal:   sim.StressLevel,
+			TargetVal:    e.params.StressLimit * 0.7,
+			DeviationPct: round2((sim.StressLevel - e.params.StressLimit*0.7) / e.params.StressLimit * 100),
+		})
+	}
+
+	if sim.Rpm > 0 && sim.Rpm < 3.0 {
+		guides = append(guides, models.BuildGuidance{
+			Step:         "increase_rpm",
+			Message:      "转速过低，建议增大直径或提高浸没度以获取更多水力",
+			ParamName:    "rpm",
+			CurrentVal:   sim.Rpm,
+			TargetVal:    5.0,
+			DeviationPct: round2((5.0 - sim.Rpm) / 5.0 * 100),
+		})
+	}
+
+	if len(guides) == 0 && sim.Stable {
+		guides = append(guides, models.BuildGuidance{
+			Step:      "complete",
+			Message:   "筒车参数合理，仿真稳定，可保存作品或调整细节优化",
+			ParamName: "",
+		})
+	}
+
+	return guides
+}
